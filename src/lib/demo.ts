@@ -1,3 +1,6 @@
+import type { Ionicons } from '@expo/vector-icons';
+import type React from 'react';
+
 export type Category = 'Cafetería' | 'Transporte' | 'Parqueadero' | 'Estudio' | 'Otros';
 export type Period = 'dia' | 'semana' | 'mes';
 export type PaymentKind = 'cafeteria' | 'transporte' | 'parqueadero';
@@ -79,13 +82,28 @@ export const freeBudget = (data: DemoData) =>
   Math.max(0, Math.min(data.balance, data.income) - Math.max(0, data.goal - data.saved));
 export const safeDaily = (data: DemoData) => Math.floor(freeBudget(data) / 7 / 100) * 100;
 
-export const categoryStyle: Record<Category, { emoji: string; background: string; bar: string }> = {
-  'Cafetería': { emoji: '☕', background: '#ffe8db', bar: '#786be3' },
-  'Transporte': { emoji: '🚌', background: '#e5f2fc', bar: '#7ac5b1' },
-  'Parqueadero': { emoji: '🚲', background: '#d5f5e7', bar: '#f4b68e' },
-  'Estudio': { emoji: '📚', background: '#eeebff', bar: '#8db8ee' },
-  'Otros': { emoji: '🧾', background: '#f0efed', bar: '#b6b6c4' },
+export type IconName = React.ComponentProps<typeof Ionicons>['name'];
+
+export const categoryStyle: Record<Category, { icon: IconName; background: string; color: string; bar: string }> = {
+  'Cafetería': { icon: 'cafe-outline', background: '#FEF3C7', color: '#B45309', bar: '#D97706' },
+  'Transporte': { icon: 'bus-outline', background: '#E0F2FE', color: '#0369A1', bar: '#0284C7' },
+  'Parqueadero': { icon: 'bicycle-outline', background: '#D1FAE5', color: '#047857', bar: '#059669' },
+  'Estudio': { icon: 'book-outline', background: '#FCE7F3', color: '#BE185D', bar: '#DB2777' },
+  'Otros': { icon: 'receipt-outline', background: '#EEF2F1', color: '#4A6361', bar: '#64748B' },
 };
+
+export const MICRO_LIMIT = 10000;
+
+export type Meal = { id: string; icon: IconName; title: string; text: string; moment: string; price: number; compare: number };
+export const meals: Meal[] = [
+  { id: 'avena', icon: 'sunny-outline', title: 'Avena con fruta y canela', text: 'Energía lenta para llegar a la primera clase.', moment: 'Desayuno', price: 4000, compare: 8000 },
+  { id: 'arepa', icon: 'restaurant-outline', title: 'Arepa con huevo y aguacate', text: 'Grasas buenas y proteína para toda la mañana.', moment: 'Desayuno', price: 6000, compare: 11000 },
+  { id: 'sandwich', icon: 'fast-food-outline', title: 'Sándwich integral, huevo y fruta', text: 'Sencillo y completo para media jornada.', moment: 'Almuerzo', price: 8000, compare: 14000 },
+  { id: 'bowl', icon: 'leaf-outline', title: 'Bowl de arroz, lentejas y vegetales', text: 'Proteína vegetal, fibra y energía para clases.', moment: 'Almuerzo', price: 9000, compare: 16000 },
+  { id: 'pollo', icon: 'nutrition-outline', title: 'Ensalada de pollo y quinoa', text: 'Ligera y saciante para días de estudio largo.', moment: 'Almuerzo', price: 12000, compare: 18000 },
+];
+/** Roughly what one meal can cost so the whole day still fits the safe daily budget. */
+export const mealBudget = (data: DemoData) => Math.round(safeDaily(data) * 0.55 / 100) * 100;
 
 export const paymentDefaults: Record<PaymentKind, { title: string; name: string; amount: number; category: Category }> = {
   cafeteria: { title: 'Pagar en cafetería', name: 'Compra en cafetería', amount: 9000, category: 'Cafetería' },
