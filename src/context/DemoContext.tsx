@@ -1,22 +1,29 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
-import { Category, DemoData, initialData, PaymentKind, Transaction } from '@/lib/demo';
+import { Category, DemoData, initialData, Transaction } from '@/lib/demo';
 
+type Sheet = 'plan' | 'saving' | null;
 type ExpenseDraft = { name: string; amount: number; category: Category; payment: boolean };
 type DemoContextValue = {
   data: DemoData;
   ready: boolean;
   loggedIn: boolean;
-  expenseKind: PaymentKind | 'manual' | null;
+  setupDone: boolean;
+  expenseOpen: boolean;
+  sheet: Sheet;
   linkOpen: boolean;
   toast: string;
   login: (email: string, password: string) => boolean;
   logout: () => void;
-  openExpense: (kind?: PaymentKind) => void;
+  openExpense: () => void;
   closeExpense: () => void;
-  addExpense: (draft: ExpenseDraft) => boolean;
-  updatePlan: (goal: number, income: number) => boolean;
-  addSaving: (amount: number) => boolean;
+  openSheet: (sheet: Exclude<Sheet, null>) => void;
+  closeSheet: () => void;
+  skipSetup: () => void;
+  /** The three mutators return an error message to show inline, or '' on success. */
+  addExpense: (draft: ExpenseDraft) => string;
+  updatePlan: (goal: number, income: number) => string;
+  addSaving: (amount: number) => string;
   openLink: () => void;
   closeLink: () => void;
   linkBank: (bank: string) => void;
@@ -28,18 +35,22 @@ type DemoContextValue = {
 const DemoContext = createContext<DemoContextValue | null>(null);
 const DATA_KEY = 'xpense-demo-native-v1';
 const SESSION_KEY = 'xpense-demo-session';
+const SETUP_KEY = 'xpense-demo-setup';
 
 export function DemoProvider({ children }: { children: React.ReactNode }) {
   const [data, setData] = useState<DemoData>(initialData);
   const [ready, setReady] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
-  const [expenseKind, setExpenseKind] = useState<PaymentKind | 'manual' | null>(null);
+  const [setupDone, setSetupDone] = useState(false);
+  const [expenseOpen, setExpenseOpen] = useState(false);
+  const [sheet, setSheet] = useState<Sheet>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [toast, setToast] = useState('');
 
   useEffect(() => {
-    Promise.all([AsyncStorage.getItem(DATA_KEY), AsyncStorage.getItem(SESSION_KEY)])
-      .then(([savedData, session]) => {
+    Promise.all([AsyncStorage.getItem(DATA_KEY), AsyncStorage.getItem(SESSION_KEY), AsyncStorage.getItem(SETUP_KEY)])
+      .then(([savedData, session, setup]) => {
+        setSetupDone(setup === 'yes');
         if (savedData) {
           const parsed = JSON.parse(savedData) as DemoData;
           if (Array.isArray(parsed.transactions)) setData(parsed);
@@ -71,16 +82,15 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     setLoggedIn(false);
     AsyncStorage.removeItem(SESSION_KEY).catch(() => {});
   };
+  const finishSetup = () => {
+    setSetupDone(true);
+    AsyncStorage.setItem(SETUP_KEY, 'yes').catch(() => {});
+  };
   const addExpense = ({ name, amount, category, payment }: ExpenseDraft) => {
     const rounded = Math.round(amount);
-    if (!name.trim() || !Number.isFinite(rounded) || rounded <= 0) {
-      notify('Revisa el nombre y el valor del gasto.');
-      return false;
-    }
-    if (rounded > data.balance) {
-      notify('El valor supera tu saldo disponible.');
-      return false;
-    }
+    if (!name.trim()) return 'Escribe en qué gastaste.';
+    if (!Number.isFinite(rounded) || rounded <= 0) return 'Escribe un valor mayor a cero.';
+    if (rounded > data.balance) return 'El valor supera tu saldo disponible.';
     const transaction: Transaction = {
       id: `tx-${Date.now()}`,
       at: new Date().toISOString(),
@@ -90,32 +100,27 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
       payment,
     };
     setData(current => ({ ...current, balance: current.balance - rounded, transactions: [...current.transactions, transaction] }));
-    setExpenseKind(null);
+    setExpenseOpen(false);
     notify(payment ? 'Pago simulado y registrado.' : 'Gasto registrado. Tu panorama se actualizó.');
-    return true;
+    return '';
   };
   const updatePlan = (goal: number, income: number) => {
-    if (![goal, income].every(value => Number.isFinite(value) && value >= 0)) {
-      notify('Ingresa valores válidos para tu plan.');
-      return false;
-    }
+    if (![goal, income].every(value => Number.isFinite(value) && value >= 0)) return 'Escribe valores válidos para tu plan.';
+    if (goal <= 0) return 'La meta debe ser mayor a cero.';
     setData(current => ({ ...current, goal: Math.round(goal), income: Math.round(income) }));
+    finishSetup();
+    setSheet(null);
     notify('Tu plan de ahorro se actualizó.');
-    return true;
+    return '';
   };
   const addSaving = (amount: number) => {
     const rounded = Math.round(amount);
-    if (!Number.isFinite(rounded) || rounded <= 0) {
-      notify('Ingresa un aporte válido.');
-      return false;
-    }
-    if (rounded > data.balance) {
-      notify('El aporte supera tu saldo disponible.');
-      return false;
-    }
+    if (!Number.isFinite(rounded) || rounded <= 0) return 'Escribe un aporte mayor a cero.';
+    if (rounded > data.balance) return 'El aporte supera tu saldo disponible.';
     setData(current => ({ ...current, balance: current.balance - rounded, saved: current.saved + rounded }));
-    notify('Aporte simulado: tu meta de ahorro avanzó.');
-    return true;
+    setSheet(null);
+    notify('Aporte registrado: tu meta avanzó.');
+    return '';
   };
   const linkBank = (bank: string) => {
     const now = new Date();
@@ -144,8 +149,9 @@ export function DemoProvider({ children }: { children: React.ReactNode }) {
     notify('Los datos de ejemplo se restauraron.');
   };
 
-  return <DemoContext.Provider value={{ data, ready, loggedIn, expenseKind, linkOpen, toast, login, logout,
-    openExpense: kind => setExpenseKind(kind || 'manual'), closeExpense: () => setExpenseKind(null),
+  return <DemoContext.Provider value={{ data, ready, loggedIn, setupDone, expenseOpen, sheet, linkOpen, toast, login, logout,
+    openExpense: () => setExpenseOpen(true), closeExpense: () => setExpenseOpen(false),
+    openSheet: setSheet, closeSheet: () => setSheet(null), skipSetup: () => { finishSetup(); setSheet(null); },
     addExpense, updatePlan, addSaving, openLink: () => setLinkOpen(true), closeLink: () => setLinkOpen(false),
     linkBank, unlinkBank, notify, reset }}>{children}</DemoContext.Provider>;
 }
